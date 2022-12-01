@@ -1,0 +1,23 @@
+var input
+Wert: Int;
+m:	Real
+b:	Real
+Scale_Max:	Real
+Scale_Min:	Real
+Nachkomma:	Int
+
+var Output	
+Out_INT:	Int
+Out_REAL:	Real
+	
+var Temp	
+Wert_scale:	Real
+N_Faktor:	Real
+Wert_Norm:	Real
+/////////////////////////
+#Wert_Norm := NORM_X(MIN := 0, VALUE := #Wert, MAX := 27648);
+#Wert_scale := SCALE_X(MIN := #Scale_Min, VALUE := #Wert_Norm, MAX := #Scale_Max);
+// Kalibrierung
+#Out_REAL := (#Wert_scale * #m + #b);
+// Int mit Nachkommfaktor berechnen
+#Out_INT := REAL_TO_INT(#Out_REAL * 10 ** (INT_TO_REAL(#Nachkomma)));
