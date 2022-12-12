@@ -1,4 +1,4 @@
-FUNCTION "Zeit_von_ms" : Void
+﻿FUNCTION "Zeit_von_ms" : Void
 
 { S7_Optimized_Access := 'TRUE' }
 VERSION : 0.1
