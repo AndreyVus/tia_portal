@@ -1,0 +1,18 @@
+﻿FUNCTION "Tagesnummer" : Int
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : Vus
+VERSION : 0.1
+VAR_INPUT
+  x{InstructionName := 'DTL'; LibVersion := '1.0'} : DTL;
+END_VAR
+VAR_TEMP
+  dtl1{InstructionName := 'DTL'; LibVersion := '1.0'} : DTL;
+END_VAR
+
+
+BEGIN
+	#dtl1 := #x;
+	#dtl1.YEAR := 1990;
+	#Tagesnummer := DATE_TO_INT(DTL_TO_DATE(#dtl1));
+END_FUNCTION
+
