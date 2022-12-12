@@ -1,0 +1,49 @@
+﻿FUNCTION_BLOCK "Häufigkeit"
+
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : Vus
+VERSION : 0.1
+VAR_INPUT
+  Ein : Bool;
+  Fall : Bool;
+END_VAR
+
+VAR_OUTPUT
+  RestlicheStunden : Real;
+END_VAR
+
+VAR
+  Sauberkeitsstunden : Struct
+    aktuell : Real;
+    letzte : Real;
+  End_Struct;
+END_VAR
+
+VAR CONSTANT
+  Zeit_1_sek : Real := 0.0002777778;//1/3600
+END_VAR
+
+
+BEGIN
+	IF #Ein THEN
+	  IF #Fall THEN//Filter wird verschmutzt
+	    //Merken, wie lange war Filter sauber
+	    IF #Sauberkeitsstunden.aktuell > 1 THEN
+	      IF #Sauberkeitsstunden.letzte < 1 THEN
+	        #Sauberkeitsstunden.letzte := #Sauberkeitsstunden.aktuell;
+	      ELSE
+	        //Gewogener Durchschnitt: 62% neue + 38% alte
+	        #Sauberkeitsstunden.letzte := 1.62 * #Sauberkeitsstunden.aktuell
+	        - #Sauberkeitsstunden.letzte * 0.62;
+	      END_IF;
+	    END_IF;
+	    #Sauberkeitsstunden.aktuell := 0;
+	  ELSE
+	    #Sauberkeitsstunden.aktuell += #Zeit_1_sek;
+	  END_IF;
+	  #RestlicheStunden := MAX(IN1 := 0,
+	                           IN2 := #Sauberkeitsstunden.letzte
+	                           - #Sauberkeitsstunden.aktuell);
+	END_IF;
+END_FUNCTION_BLOCK
+
