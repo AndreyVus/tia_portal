@@ -1,32 +1,38 @@
-var input 
-ar	Array[*] of "UDT_Sensoren"		
+FUNCTION "MittelwertArray" : "UDT_Sensoren"
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : Vus
+VERSION : 0.1
+   VAR_INPUT 
+      ar : Array[*] of "UDT_Sensoren";
+   END_VAR
 
-var temp
-Summe	"UDT_Sensoren"
-aktuelle_Wert	"UDT_Sensoren"
-n	Real
-i	Int
-ubound	Int
+   VAR_TEMP 
+      Summe : "UDT_Sensoren";
+      aktuelle_Wert : "UDT_Sensoren";
+      n : Real;
+      i : Int;
+      ubound : Int;
+   END_VAR
 
-return var
-MWert	"UDT_Sensoren"
-//////////////////////////
-#ubound := DINT_TO_INT(UPPER_BOUND(ARR := #ar, DIM := 1));
-FOR #i := 0 TO #ubound DO
-        #aktuelle_Wert := #ar[#i];
-        IF #aktuelle_Wert.Tanktemperatur <> 0 THEN
-                #Summe.Tanktemperatur += #aktuelle_Wert.Tanktemperatur;
-                #Summe.Tankniveau += #aktuelle_Wert.Tankniveau;
-                #Summe.Volumenstrom += #aktuelle_Wert.Volumenstrom;
-                #n += 1;
-        END_IF;
-END_FOR;
-IF #n > 0 THEN
-        #MWert.Tanktemperatur := #Summe.Tanktemperatur / #n;
-        #MWert.Tankniveau := #Summe.Tankniveau / #n;
-        #MWert.Volumenstrom := #Summe.Volumenstrom / #n;
-ELSE
-        #MWert.Tanktemperatur := 0;
-        #MWert.Tankniveau := 0;
-        #MWert.Volumenstrom := 0;
-END_IF;
+
+BEGIN
+	#ubound := DINT_TO_INT(UPPER_BOUND(ARR := #ar, DIM := 1));
+	FOR #i := 0 TO #ubound DO
+	        #aktuelle_Wert := #ar[#i];
+	        IF #aktuelle_Wert.Tanktemperatur <> 0 THEN
+	                #Summe.Tanktemperatur += #aktuelle_Wert.Tanktemperatur;
+	                #Summe.Tankniveau += #aktuelle_Wert.Tankniveau;
+	                #Summe.Volumenstrom += #aktuelle_Wert.Volumenstrom;
+	                #n += 1;
+	        END_IF;
+	END_FOR;
+	IF #n > 0 THEN
+	        #MittelwertArray.Tanktemperatur := #Summe.Tanktemperatur / #n;
+	        #MittelwertArray.Tankniveau := #Summe.Tankniveau / #n;
+	        #MittelwertArray.Volumenstrom := #Summe.Volumenstrom / #n;
+	ELSE
+	        #MittelwertArray.Tanktemperatur := 0;
+	        #MittelwertArray.Tankniveau := 0;
+	        #MittelwertArray.Volumenstrom := 0;
+	END_IF;
+END_FUNCTION
