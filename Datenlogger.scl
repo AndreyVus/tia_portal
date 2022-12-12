@@ -1,0 +1,351 @@
+﻿FUNCTION_BLOCK "Datenlogger"
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : Vus
+VERSION : 0.1
+//Betriebsdatenerfassung
+VAR RETAIN
+  Jahre{S7_SETPOINT := 'False'} : Array[#jahr0..#jahr1] OF "UDT_Sensoren";
+  Tage : Array[0..364] OF "UDT_Sensoren";
+  LetztesDatum{InstructionName := 'DTL'; LibVersion := '1.0'} : DTL;
+  Anzahl_voller_Minuten : Real;
+END_VAR
+VAR
+  Sekunden : Array[0..59] OF "UDT_Sensoren";
+  Minuten : Array[0..59] OF "UDT_Sensoren";
+  Stunden : Array[0..23] OF "UDT_Sensoren";
+  Wert : "UDT_Sensoren";
+  Graf60 : Array[0..59] OF Real;
+  Häufigkeit1 : "Häufigkeit";
+  Häufigkeit2 : "Häufigkeit";
+  Häufigkeit3 : "Häufigkeit";
+END_VAR
+VAR_TEMP
+  i : Int;
+  Tagesnummer : Int;
+  Monat : USInt;
+  null24 : Array[0..23] OF "UDT_Sensoren";
+  null60 : Array[0..59] OF "UDT_Sensoren";
+  null365 : Array[0..364] OF "UDT_Sensoren";
+END_VAR
+VAR CONSTANT
+  jahr0 : Int := 2022;//0
+  jahr1 : Int := 2081;//+59
+END_VAR
+
+
+BEGIN
+	REGION ZeitEinheit für Grafiken
+	  "Sekunde" := "DB110_Allgemein_DB".System_Zeit.SECOND;
+	  "Minute" := "DB110_Allgemein_DB".System_Zeit.MINUTE;
+	  "Stunde" := "DB110_Allgemein_DB".System_Zeit.HOUR;
+	  "Tag" := "DB110_Allgemein_DB".System_Zeit.DAY;
+	  #Monat := "DB110_Allgemein_DB".System_Zeit.MONTH;
+	  "Jahr" := "DB110_Allgemein_DB".System_Zeit.YEAR;
+	END_REGION
+	
+	REGION nullen, wenn Systemzeit geändert
+	  IF "nonremanent_nullen" THEN
+	    "nonremanent_nullen" := FALSE;
+	    #LetztesDatum := "DB110_Allgemein_DB".Date_Time_Panel;
+	    #Sekunden := #null60;
+	    #Minuten := #null60;
+	    #Stunden := #null24;
+	    #Anzahl_voller_Minuten := 0;
+	  END_IF;
+	  IF "TageNullen" THEN
+	    "TageNullen" := FALSE;
+	    #LetztesDatum.YEAR := "Jahr";
+	    #Tage := #null365;
+	    #Anzahl_voller_Minuten := 0;
+	  END_IF;
+	  IF "StundenNullen" THEN
+	    "StundenNullen" := FALSE;
+	    #LetztesDatum.MONTH := #Monat;
+	    #LetztesDatum.DAY := INT_TO_USINT("Tag");
+	    #Stunden := #null24;
+	    #Anzahl_voller_Minuten := 0;
+	  END_IF;
+	END_REGION
+	
+	REGION Neue Minute
+	  IF "Minute" <> #LetztesDatum.MINUTE THEN
+	    //mw(Sekunden) -> Minuten[letzte.Minute]
+	    #Minuten[#LetztesDatum.MINUTE] := "MittelwertArray"(#Sekunden);
+	    //Sekunden nullen
+	    #Sekunden := #null60;
+	    //
+	    #LetztesDatum.MINUTE := INT_TO_USINT("Minute");
+	    
+	    //jede Minute wird Tages-/Jahres-Werte aktualisiert.
+	    #Stunden[#LetztesDatum.HOUR] := "MittelwertArray"(#Minuten);
+	    #Tagesnummer := "Tagesnummer"(#LetztesDatum);
+	    IF #Anzahl_voller_Minuten < 1 THEN
+	      #Tage[#Tagesnummer] := #Stunden[#LetztesDatum.HOUR];
+	    ELSE
+	      "MittelwertAdd"(X := #Stunden[#LetztesDatum.HOUR].Tanktemperatur,
+	                      N := #Anzahl_voller_Minuten,
+	                      Y := #Tage[#Tagesnummer].Tanktemperatur);
+	      "MittelwertAdd"(X := #Stunden[#LetztesDatum.HOUR].Tankniveau,
+	                      N := #Anzahl_voller_Minuten,
+	                      Y := #Tage[#Tagesnummer].Tankniveau);
+	      "MittelwertAdd"(X := #Stunden[#LetztesDatum.HOUR].Volumenstrom,
+	                      N := #Anzahl_voller_Minuten,
+	                      Y := #Tage[#Tagesnummer].Volumenstrom);
+	    END_IF;
+	    #Anzahl_voller_Minuten += 1;
+	    IF #LetztesDatum.YEAR >= #jahr0 AND #LetztesDatum.YEAR <= #jahr1 THEN
+	      #Jahre[#LetztesDatum.YEAR] := "MittelwertArray"(#Tage);
+	    END_IF;
+	  END_IF;
+	END_REGION
+	
+	REGION Neue Stunde
+	  IF "Stunde" <> #LetztesDatum.HOUR THEN
+	    #Minuten := #null60;
+	    #LetztesDatum.HOUR := INT_TO_USINT("Stunde");
+	  END_IF;
+	END_REGION
+	
+	REGION Neuer Tag+Monat
+	  IF "Tag" <> #LetztesDatum.DAY
+	    OR #Monat <> #LetztesDatum.MONTH THEN
+	    #Stunden := #null24;
+	    #Anzahl_voller_Minuten := 0;
+	    #LetztesDatum.DAY := INT_TO_USINT("Tag");
+	    #LetztesDatum.MONTH := #Monat;
+	  END_IF;
+	END_REGION
+	
+	REGION Jahr prüfen
+	  IF #LetztesDatum.YEAR < "Jahr" THEN
+	    #Tage := #null365;
+	    #LetztesDatum.YEAR := "Jahr";
+	  END_IF;
+	END_REGION
+	
+	REGION Vorhersage der Filterverschmutzung
+	  //Druckfilter 1 Hydraulikversorgung verschmutzt
+	  #Häufigkeit1(Ein := "DB7_I_O_Variablen_Uebergabe".bController_HydAgg_ist_ein_q,
+	               Fall := "DB160_Stoermeldungen".ID[270]);
+	  //Rücklauffilter verschmutzt
+	  #Häufigkeit2(Ein := "DB7_I_O_Variablen_Uebergabe".bController_HydAgg_ist_ein_q,
+	               Fall := "DB160_Stoermeldungen".ID[271]);
+	  //Druckfilter 2 Hydraulikversorgung verschmutzt ( Optional )
+	  #Häufigkeit3(Ein := "DB7_I_O_Variablen_Uebergabe".bController_HydAgg_ist_ein_q,
+	               Fall := "DB160_Stoermeldungen".ID[272]);
+	END_REGION
+	
+	REGION Wert --> OPC, DB
+	  "opc_DB".Tanktemp := #Wert.Tanktemperatur := "DB140_HMI-Daten".HMI_OutTanktemp;
+	  "opc_DB".Tankniveau := #Wert.Tankniveau := "DB140_HMI-Daten".HMI_OutTankniveau;
+	  "opc_DB".Volumenstrom := #Wert.Volumenstrom := "DB140_HMI-Daten".HMI_OutVolumenstrom;
+	  "opc_DB".Systemdruck := #Wert.Systemdruck := "DB140_HMI-Daten".HMI_rSystemdruck;
+	  "opc_DB".Kuehlpumpe_Status := "DB140_HMI-Daten".HMI_bKuehlpumpe_Status;
+	  "opc_DB".ÖlLuftkühler_Status := "DB140_HMI-Daten".HMI_bÖlLuftkühler_Status;
+	  "opc_DB".Leckölpumpe_Status := "DB140_HMI-Daten".HMI_bLeckölpumpe_Status;
+	  "opc_DB".Kuehlwasserventil_Status := "DB140_HMI-Daten".HMI_bKuehlwasserventil_Status;
+	  "opc_DB"."Sperrventil_P-Leitung_Status" := "DB140_HMI-Daten"."HMI_bSperrventil_P-Leitung_Status";
+	  "opc_DB"."Not-Halt-Schütze-Status" := "DB140_HMI-Daten"."HMI_Not-Halt-Schütze-Status";
+	  "opc_DB".Druckschalter_Status := "DB140_HMI-Daten".HMI_Druckschalter_Status;
+	  "opc_DB".Hydraulik_Stunden := "DB110_Allgemein_DB".Hydraulikversorgung.Ist_Stunden;
+	  "opc_DB".Kühler_Stunden := "DB110_Allgemein_DB".Kühlkreislauf.Ist_Stunden;
+	  #Sekunden["Sekunde"] := #Wert;
+	END_REGION
+	
+	REGION Grafiken
+	  "Tagoffset" := LIMIT(MN := 0, IN := "Tagoffset", MX := 305);
+	  CASE "Parameter" OF
+	    0:
+	      REGION Temperatur
+	        CASE "Einheit" OF
+	          0:
+	            REGION Sekunden
+	              FOR #i := 0 TO 59 DO
+	                #Graf60[#i] :=
+	                NORM_X(VALUE := #Sekunden[#i].Tanktemperatur,
+	                       MIN := "DB140_HMI-Daten".Options.rScaleMinTanktemp,
+	                       MAX := "DB140_HMI-Daten".Options.rScaleMaxTanktemp);
+	              END_FOR;
+	            END_REGION
+	          1:
+	            REGION Minuten
+	              FOR #i := 0 TO 59 DO
+	                #Graf60[#i] :=
+	                NORM_X(VALUE := #Minuten[#i].Tanktemperatur,
+	                       MIN := "DB140_HMI-Daten".Options.rScaleMinTanktemp,
+	                       MAX := "DB140_HMI-Daten".Options.rScaleMaxTanktemp);
+	              END_FOR;
+	            END_REGION
+	          2:
+	            REGION Stunden
+	              FOR #i := 0 TO 59 DO
+	                #Graf60[#i] :=
+	                NORM_X(VALUE := #Stunden[TRUNC(#i / 2.5)].Tanktemperatur,
+	                       MIN := "DB140_HMI-Daten".Options.rScaleMinTanktemp,
+	                       MAX := "DB140_HMI-Daten".Options.rScaleMaxTanktemp);
+	              END_FOR;
+	            END_REGION
+	          3:
+	            REGION Tage
+	              FOR #i := 0 TO 59 DO
+	                #Graf60[#i] :=
+	                NORM_X(VALUE := #Tage[#i + "Tagoffset"].Tanktemperatur,
+	                       MIN := "DB140_HMI-Daten".Options.rScaleMinTanktemp,
+	                       MAX := "DB140_HMI-Daten".Options.rScaleMaxTanktemp);
+	              END_FOR;
+	            END_REGION
+	          4:
+	            REGION Jahre
+	              FOR #i := 0 TO 59 DO
+	                #Graf60[#i] :=
+	                NORM_X(VALUE := #Jahre[#i + #jahr0].Tanktemperatur,
+	                       MIN := "DB140_HMI-Daten".Options.rScaleMinTanktemp,
+	                       MAX := "DB140_HMI-Daten".Options.rScaleMaxTanktemp);
+	              END_FOR;
+	            END_REGION
+	        END_CASE;
+	      END_REGION
+	    1:
+	      REGION Tankniveau
+	        CASE "Einheit" OF
+	          0:
+	            REGION Sekunden
+	              FOR #i := 0 TO 59 DO
+	                #Graf60[#i] :=
+	                NORM_X(VALUE := #Sekunden[#i].Tankniveau,
+	                       MIN := "DB140_HMI-Daten".Options.rScaleMinTankniveau,
+	                       MAX := "DB140_HMI-Daten".Options.rScaleMaxTankniveau);
+	              END_FOR;
+	            END_REGION
+	          1:
+	            REGION Minuten
+	              FOR #i := 0 TO 59 DO
+	                #Graf60[#i] :=
+	                NORM_X(VALUE := #Minuten[#i].Tankniveau,
+	                       MIN := "DB140_HMI-Daten".Options.rScaleMinTankniveau,
+	                       MAX := "DB140_HMI-Daten".Options.rScaleMaxTankniveau);
+	              END_FOR;
+	            END_REGION
+	          2:
+	            REGION Stunden
+	              FOR #i := 0 TO 59 DO
+	                #Graf60[#i] :=
+	                NORM_X(VALUE := #Stunden[TRUNC(#i / 2.5)].Tankniveau,
+	                       MIN := "DB140_HMI-Daten".Options.rScaleMinTankniveau,
+	                       MAX := "DB140_HMI-Daten".Options.rScaleMaxTankniveau);
+	              END_FOR;
+	            END_REGION
+	          3:
+	            REGION Tage
+	              FOR #i := 0 TO 59 DO
+	                #Graf60[#i] :=
+	                NORM_X(VALUE := #Tage[#i + "Tagoffset"].Tankniveau,
+	                       MIN := "DB140_HMI-Daten".Options.rScaleMinTankniveau,
+	                       MAX := "DB140_HMI-Daten".Options.rScaleMaxTankniveau);
+	              END_FOR;
+	            END_REGION
+	          4:
+	            REGION Jahre
+	              FOR #i := 0 TO 59 DO
+	                #Graf60[#i] :=
+	                NORM_X(VALUE := #Jahre[#i + #jahr0].Tankniveau,
+	                       MIN := "DB140_HMI-Daten".Options.rScaleMinTankniveau,
+	                       MAX := "DB140_HMI-Daten".Options.rScaleMaxTankniveau);
+	              END_FOR;
+	            END_REGION
+	        END_CASE;
+	      END_REGION
+	    2:
+	      REGION Volumenstrom
+	        CASE "Einheit" OF
+	          0:
+	            REGION Sekunden
+	              FOR #i := 0 TO 59 DO
+	                #Graf60[#i] :=
+	                NORM_X(VALUE := #Sekunden[#i].Volumenstrom,
+	                       MIN := "DB140_HMI-Daten".Options.rScaleMinVolumenstrom,
+	                       MAX := "DB140_HMI-Daten".Options.rScaleMaxVolumenstrom);
+	              END_FOR;
+	            END_REGION
+	          1:
+	            REGION Minuten
+	              FOR #i := 0 TO 59 DO
+	                #Graf60[#i] :=
+	                NORM_X(VALUE := #Minuten[#i].Volumenstrom,
+	                       MIN := "DB140_HMI-Daten".Options.rScaleMinVolumenstrom,
+	                       MAX := "DB140_HMI-Daten".Options.rScaleMaxVolumenstrom);
+	              END_FOR;
+	            END_REGION
+	          2:
+	            REGION Stunden
+	              FOR #i := 0 TO 59 DO
+	                #Graf60[#i] :=
+	                NORM_X(VALUE := #Stunden[TRUNC(#i / 2.5)].Volumenstrom,
+	                       MIN := "DB140_HMI-Daten".Options.rScaleMinVolumenstrom,
+	                       MAX := "DB140_HMI-Daten".Options.rScaleMaxVolumenstrom);
+	              END_FOR;
+	            END_REGION
+	          3:
+	            REGION Tage
+	              FOR #i := 0 TO 59 DO
+	                #Graf60[#i] :=
+	                NORM_X(VALUE := #Tage[#i + "Tagoffset"].Volumenstrom,
+	                       MIN := "DB140_HMI-Daten".Options.rScaleMinVolumenstrom,
+	                       MAX := "DB140_HMI-Daten".Options.rScaleMaxVolumenstrom);
+	              END_FOR;
+	            END_REGION
+	          4:
+	            REGION Jahre
+	              FOR #i := 0 TO 59 DO
+	                #Graf60[#i] :=
+	                NORM_X(VALUE := #Jahre[#i + #jahr0].Volumenstrom,
+	                       MIN := "DB140_HMI-Daten".Options.rScaleMinVolumenstrom,
+	                       MAX := "DB140_HMI-Daten".Options.rScaleMaxVolumenstrom);
+	              END_FOR;
+	            END_REGION
+	        END_CASE;
+	      END_REGION
+	    3:
+	      REGION Systemdruck
+	        "Parameter" := 0;
+	(*
+	#n := 0;
+	CASE "Einheit" OF
+	0:
+	REGION Sekunden
+	FOR #i := 0 TO 59 DO
+	#Graf60[#i] := #Sekunden[#i].Systemdruck;
+	END_FOR;
+	END_REGION
+	1:
+	REGION Minuten
+	FOR #i := 0 TO 59 DO
+	#Graf60[#i] := #Minuten[#i].Systemdruck;
+	END_FOR;
+	END_REGION
+	2:
+	REGION Stunden
+	FOR #i := 0 TO 59 DO
+	#Graf60[#i] := #Stunden[TRUNC(#i / 2.5)].Systemdruck;
+	END_FOR;
+	END_REGION
+	3:
+	REGION Tage
+	FOR #i := 0 TO 59 DO
+	#Graf60[#i] := "Remanent".Tage[#i + "Tagoffset"].Systemdruck;
+	END_FOR;
+	END_REGION
+	4:
+	REGION Jahre
+	FOR #i := #jahr0 TO #jahr1 DO
+	#Graf60[#i] := "Remanent".Jahre[#i].Systemdruck;
+	END_FOR;
+	END_REGION
+	END_CASE;
+	*)
+	      END_REGION
+	  END_CASE;
+	END_REGION
+	
+END_FUNCTION_BLOCK
+
