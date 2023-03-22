@@ -12,7 +12,8 @@ END_VAR
 
 BEGIN
 	#dtl1 := #x;
-	#dtl1.YEAR := 1990;
-	#Tagesnummer := DATE_TO_INT(DTL_TO_DATE(#dtl1));
+	#dtl1.DAY := 1;
+	#dtl1.MONTH := 1;
+	#Tagesnummer := DATE_TO_INT(DTL_TO_DATE(#x)) - DATE_TO_INT(DTL_TO_DATE(#dtl1));//0..365
 END_FUNCTION
 
